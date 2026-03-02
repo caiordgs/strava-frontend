@@ -431,7 +431,7 @@ export default function StravaApp() {
           <div style={{ background: "#1a0a0a", border: "1px solid #f43f5e44", borderRadius: 12, padding: 32, textAlign: "center" }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
             <div style={{ color: "#f43f5e", fontSize: 14, marginBottom: 12 }}>{error}</div>
-            <a href="http://localhost:8000/auth" target="_blank" rel="noreferrer" style={{ color: "#f97316", fontSize: 12, textDecoration: "underline" }}>
+            <a href="https://strava-backend-production.up.railway.app/auth" target="_blank" rel="noreferrer" style={{ color: "#f97316", fontSize: 12, textDecoration: "underline" }}>
               Clique aqui para autenticar com a Strava
             </a>
           </div>
