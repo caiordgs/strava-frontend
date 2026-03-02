@@ -222,7 +222,7 @@ export default function StravaApp() {
 
         const newGoals = [
           { id: "km este mês",        label: "km este mês",             current: parseFloat(thisMonth.reduce((a, r) => a + r.distance, 0).toFixed(1)), target: 100,        unit: "km",     color: "#f97316", lowerIsBetter: false },
-          { id: "média corridas/sem", label: "média corridas/sem",      current: parseFloat(avgRuns.toFixed(1)),                                        target: 4,          unit: "runs",   color: "#22d3ee", lowerIsBetter: false },
+          { id: "média corridas/sem", label: "corridas no mês",          current: thisMonth.length,                                                          target: 12,         unit: "runs",   color: "#22d3ee", lowerIsBetter: false },
           { id: "km este ano",        label: "km este ano",             current: parseFloat(thisYear.reduce((a, r) => a + r.distance, 0).toFixed(1)),   target: 500,        unit: "km",     color: "#34d399", lowerIsBetter: false },
           { id: "pace últimas 5",     label: "pace últimas 5 corridas", current: last5Pace,  target: paceTarget, unit: "min/km", color: "#a78bfa", lowerIsBetter: true,
             display: last5PaceStr, targetDisplay: paceTargetStr },
@@ -281,6 +281,7 @@ export default function StravaApp() {
           paceStr: `${Math.floor(paceSec / 60)}:${String(Math.round(paceSec % 60)).padStart(2,"0")}`,
           hr:    avgHrSeg,
           time:  elapsed,
+          kmh:   parseFloat((avgVel * 3.6).toFixed(1)),
         });
         lastIdx  = i;
         kmTarget += 1000;
@@ -596,14 +597,16 @@ export default function StravaApp() {
                     {/* Stats */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
                       {[
-                        { l: "Distância", v: `${selected.distance} km` },
-                        { l: "Tempo",     v: fmt(selected.duration) },
-                        { l: "Pace",      v: `${selected.pace} /km` },
-                        { l: "Elevação",  v: `${selected.elevation} m` },
-                        { l: "FC Média",  v: selected.avgHr ? `${selected.avgHr} bpm` : "—" },
-                        { l: "FC Máxima", v: selected.maxHr ? `${selected.maxHr} bpm` : "—" },
-                        { l: "Calorias",  v: selected.calories ? `${selected.calories} kcal` : "—" },
-                        { l: "Zona FC",   v: hrZone(selected.avgHr).label },
+                        { l: "Distância",    v: `${selected.distance} km` },
+                        { l: "Tempo",        v: fmt(selected.duration) },
+                        { l: "Pace",         v: `${selected.pace} /km` },
+                        { l: "Velocidade",   v: selected.avgSpeed ? `${selected.avgSpeed} km/h` : "—" },
+                        { l: "Vel. Máxima",  v: selected.maxSpeed ? `${selected.maxSpeed} km/h` : "—" },
+                        { l: "Elevação",     v: `${selected.elevation} m` },
+                        { l: "FC Média",     v: selected.avgHr ? `${selected.avgHr} bpm` : "—" },
+                        { l: "FC Máxima",    v: selected.maxHr ? `${selected.maxHr} bpm` : "—" },
+                        { l: "Calorias",     v: selected.calories ? `${selected.calories} kcal` : "—" },
+                        { l: "Zona FC",      v: hrZone(selected.avgHr).label },
                       ].map((s, i) => (
                         <div key={i} style={{ background: "#0a1520", borderRadius: 8, padding: "10px 14px" }}>
                           <div style={{ fontSize: 10, color: "#475569", letterSpacing: 1 }}>{s.l.toUpperCase()}</div>
@@ -637,6 +640,39 @@ export default function StravaApp() {
                         {selected.avgHr ? "Carregando dados de FC..." : "Corrida sem dados de FC"}
                       </div>
                     )}
+
+                    {/* Gráfico Velocidade */}
+                    {(() => {
+                      const velData = streams?.velocity_smooth?.data
+                        ? streams.velocity_smooth.data
+                            .filter((_, i) => i % 5 === 0)
+                            .map((v, i) => ({
+                              min: streams.time?.data?.[i * 5] || i * 5,
+                              kmh: parseFloat((v * 3.6).toFixed(1)),
+                            }))
+                            .filter(d => d.kmh > 0)
+                        : null;
+                      return velData ? (
+                        <>
+                          <div style={{ fontSize: 11, color: "#64748b", letterSpacing: 1, marginBottom: 10, marginTop: 16 }}>VELOCIDADE AO LONGO DA CORRIDA</div>
+                          <ResponsiveContainer width="100%" height={130}>
+                            <AreaChart data={velData}>
+                              <defs>
+                                <linearGradient id="velGrad" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#f97316" stopOpacity={0.3} />
+                                  <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid stroke="#1e3a4a" strokeDasharray="3 3" />
+                              <XAxis dataKey="min" tick={{ fill: "#475569", fontSize: 9 }} tickFormatter={v => `${Math.floor(v/60)}min`} />
+                              <YAxis domain={["auto","auto"]} tick={{ fill: "#475569", fontSize: 9 }} unit=" km/h" width={52} />
+                              <Tooltip content={<CustomTooltip />} formatter={v => [`${v} km/h`]} />
+                              <Area type="monotone" dataKey="kmh" stroke="#f97316" fill="url(#velGrad)" strokeWidth={2} dot={false} name="km/h" />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </>
+                      ) : null;
+                    })()}
                   </div>
                 )}
               </div>
@@ -712,6 +748,8 @@ export default function StravaApp() {
                           {[
                             { label: "Distância", a: `${compareA.distance}km`, b: `${compareB.distance}km` },
                             { label: "Pace",      a: compareA.pace,            b: compareB.pace },
+                            { label: "Vel. Méd.", a: compareA.avgSpeed ? `${compareA.avgSpeed}km/h` : "—", b: compareB.avgSpeed ? `${compareB.avgSpeed}km/h` : "—" },
+                            { label: "Vel. Máx.", a: compareA.maxSpeed ? `${compareA.maxSpeed}km/h` : "—", b: compareB.maxSpeed ? `${compareB.maxSpeed}km/h` : "—" },
                             { label: "FC Média",  a: compareA.avgHr ? `${compareA.avgHr}bpm` : "—", b: compareB.avgHr ? `${compareB.avgHr}bpm` : "—" },
                             { label: "Tempo",     a: fmt(compareA.duration),   b: fmt(compareB.duration) },
                             { label: "Elevação",  a: `${compareA.elevation}m`, b: `${compareB.elevation}m` },
@@ -774,6 +812,8 @@ export default function StravaApp() {
 
                                   const paceAdv = advantage(a?.pace, b?.pace, true);
                                   const hrAdv   = advantage(a?.hr,   b?.hr,   true);
+                                  const velAdv  = advantage(a?.kmh,  b?.kmh,  false); // maior vel = melhor
+                                  const velWinner = a?.kmh && b?.kmh ? (a.kmh > b.kmh ? "A" : a.kmh < b.kmh ? "B" : "tie") : null;
 
                                   return (
                                     <div key={i} style={{ background: "#0a1520", borderRadius: 10, padding: "14px 18px", border: "1px solid #1e3a4a" }}>
@@ -816,6 +856,24 @@ export default function StravaApp() {
                                               <div style={{ width: `${hrAdv.pctB}%`, background: bothHr ? (hrAdv.pctB > hrAdv.pctA ? "#a78bfa" : "#a78bfa44") : "#1e3a4a", borderRadius: "0 100px 100px 0", transition: "width 0.6s ease" }} />
                                             </div>
                                             <span style={{ fontFamily: "'Bebas Neue'", fontSize: 16, color: "#22d3ee", width: 44 }}>{b?.hr || "—"}</span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Velocidade — barra proporcional (maior = melhor) */}
+                                      {(a?.kmh || b?.kmh) && (
+                                        <div style={{ marginTop: 8 }}>
+                                          <div style={{ fontSize: 10, color: "#475569", letterSpacing: 1, marginBottom: 6 }}>VELOCIDADE</div>
+                                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                            <span style={{ fontFamily: "'Bebas Neue'", fontSize: 16, color: "#f97316", width: 44, textAlign: "right" }}>{a?.kmh ? `${a.kmh}` : "—"}</span>
+                                            <div style={{ flex: 1, display: "flex", height: 10, borderRadius: 100, overflow: "hidden", gap: 2 }}>
+                                              <div style={{ width: `${velAdv.pctA}%`, background: a?.kmh && b?.kmh ? (velWinner === "A" ? "#34d399" : "#34d39944") : "#1e3a4a", borderRadius: "100px 0 0 100px", transition: "width 0.6s ease" }} />
+                                              <div style={{ width: `${velAdv.pctB}%`, background: a?.kmh && b?.kmh ? (velWinner === "B" ? "#34d399" : "#34d39944") : "#1e3a4a", borderRadius: "0 100px 100px 0", transition: "width 0.6s ease" }} />
+                                            </div>
+                                            <span style={{ fontFamily: "'Bebas Neue'", fontSize: 16, color: "#22d3ee", width: 44 }}>{b?.kmh ? `${b.kmh}` : "—"}</span>
+                                          </div>
+                                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#475569", marginTop: 2, paddingLeft: 54, paddingRight: 54 }}>
+                                            <span>km/h</span><span>km/h</span>
                                           </div>
                                         </div>
                                       )}
