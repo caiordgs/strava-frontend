@@ -36,6 +36,43 @@ const buildWeeklyData = (runs) => {
   return Object.values(map).slice(-8);
 };
 
+const buildPaceTrend = (runs) => {
+  // Agrupa pace médio por semana e calcula linha de tendência
+  const map = {};
+  runs.forEach(r => {
+    const d   = new Date(r.date + "T00:00:00");
+    const mon = new Date(d);
+    mon.setDate(d.getDate() - d.getDay() + 1);
+    const key = mon.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+    const [m, s] = r.pace.split(":").map(Number);
+    const paceMin = m + s / 60;
+    if (!map[key]) map[key] = { week: key, paces: [] };
+    map[key].paces.push(paceMin);
+  });
+
+  const weeks = Object.values(map).slice(-10).map(w => ({
+    week:    w.week,
+    pace:    parseFloat((w.paces.reduce((a, b) => a + b, 0) / w.paces.length).toFixed(3)),
+    paceStr: (() => { const avg = w.paces.reduce((a, b) => a + b, 0) / w.paces.length; return `${Math.floor(avg)}:${String(Math.round((avg % 1) * 60)).padStart(2,"0")}`; })(),
+  }));
+
+  // Linha de tendência linear (regressão simples)
+  if (weeks.length < 2) return weeks;
+  const n  = weeks.length;
+  const xs = weeks.map((_, i) => i);
+  const ys = weeks.map(w => w.pace);
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  const slope = xs.reduce((acc, x, i) => acc + (x - mx) * (ys[i] - my), 0) /
+                xs.reduce((acc, x) => acc + (x - mx) ** 2, 0);
+  const intercept = my - slope * mx;
+
+  return weeks.map((w, i) => ({
+    ...w,
+    trend: parseFloat((intercept + slope * i).toFixed(3)),
+  }));
+};
+
 const buildZoneData = (runs) => {
   const counts = { Z1: 0, Z2: 0, Z3: 0, Z4: 0, Z5: 0 };
   const valid  = runs.filter(r => r.avgHr);
@@ -338,8 +375,9 @@ export default function StravaApp() {
     setAlerts(newAlerts);
   }, [goals, thresholds]);
 
-  const weeklyData  = buildWeeklyData(runs);
-  const radarData   = buildRadar(runs);
+  const weeklyData   = buildWeeklyData(runs);
+  const paceTrendData = buildPaceTrend(runs);
+  const radarData    = buildRadar(runs);
   const zoneData    = buildZoneData(runs);
   const totalKm     = runs.reduce((a, r) => a + r.distance, 0).toFixed(1);
   const paceArr     = runs.map(r => { const [m, s] = r.pace.split(":").map(Number); return m + s / 60; });
@@ -431,7 +469,7 @@ export default function StravaApp() {
           <div style={{ background: "#1a0a0a", border: "1px solid #f43f5e44", borderRadius: 12, padding: 32, textAlign: "center" }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
             <div style={{ color: "#f43f5e", fontSize: 14, marginBottom: 12 }}>{error}</div>
-            <a href="https://strava-backend-production.up.railway.app/auth" target="_blank" rel="noreferrer" style={{ color: "#f97316", fontSize: 12, textDecoration: "underline" }}>
+            <a href="http://localhost:8000/auth" target="_blank" rel="noreferrer" style={{ color: "#f97316", fontSize: 12, textDecoration: "underline" }}>
               Clique aqui para autenticar com a Strava
             </a>
           </div>
@@ -488,6 +526,60 @@ export default function StravaApp() {
                     </ResponsiveContainer>
                   </div>
                 </div>
+
+                {/* Tendência de pace */}
+                {paceTrendData.length >= 2 && (() => {
+                  const first = paceTrendData[0].trend;
+                  const last  = paceTrendData[paceTrendData.length - 1].trend;
+                  const improving = last < first;
+                  const diffSec   = Math.round(Math.abs(last - first) * 60);
+                  const diffStr   = `${Math.floor(diffSec / 60) > 0 ? `${Math.floor(diffSec/60)}min ` : ""}${diffSec % 60}s`;
+                  return (
+                    <div style={{ background: "#0f1923", border: "1px solid #1e3a4a", borderRadius: 12, padding: 24, marginBottom: 24 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                        <div>
+                          <div style={{ fontSize: 11, letterSpacing: 2, color: "#64748b" }}>TENDÊNCIA DE PACE</div>
+                          <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>pace médio semanal · últimas {paceTrendData.length} semanas</div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontSize: 13, color: improving ? "#34d399" : "#f43f5e", fontWeight: 500 }}>
+                            {improving ? "▼ melhorando" : "▲ piorando"} {diffStr}/km
+                          </div>
+                          <div style={{ fontSize: 10, color: "#475569", marginTop: 2 }}>
+                            {paceTrendData[0].paceStr} → {paceTrendData[paceTrendData.length-1].paceStr} /km
+                          </div>
+                        </div>
+                      </div>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <LineChart data={paceTrendData}>
+                          <defs>
+                            <linearGradient id="trendGrad" x1="0" y1="0" x2="1" y2="0">
+                              <stop offset="0%" stopColor={improving ? "#f43f5e" : "#34d399"} />
+                              <stop offset="100%" stopColor={improving ? "#34d399" : "#f43f5e"} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid stroke="#1e3a4a" strokeDasharray="3 3" />
+                          <XAxis dataKey="week" tick={{ fill: "#475569", fontSize: 10 }} />
+                          <YAxis
+                            domain={["auto", "auto"]}
+                            tick={{ fill: "#475569", fontSize: 10 }}
+                            tickFormatter={v => { const m = Math.floor(v); const s = Math.round((v-m)*60); return `${m}:${String(s).padStart(2,"0")}`; }}
+                            reversed
+                          />
+                          <Tooltip
+                            content={<CustomTooltip />}
+                            formatter={(v, name) => {
+                              const m = Math.floor(v); const s = Math.round((v-m)*60);
+                              return [`${m}:${String(s).padStart(2,"0")} /km`, name === "pace" ? "Pace médio" : "Tendência"];
+                            }}
+                          />
+                          <Line type="monotone" dataKey="pace"  stroke="#94a3b8" strokeWidth={2} dot={{ fill: "#94a3b8", r: 4 }} name="pace" />
+                          <Line type="monotone" dataKey="trend" stroke="url(#trendGrad)" strokeWidth={2} strokeDasharray="6 3" dot={false} name="trend" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  );
+                })()}
 
                 {/* Últimas corridas com mapa da mais recente */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
